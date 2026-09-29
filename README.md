@@ -15,7 +15,10 @@ Config: `~/.config/anki-korean-sync/config.json`, e.g.
     {"decks": ["Stan's Korean", "Korean Vocab::Auction Industry", "HTSK Sentences"],
      "days": 14, "serial": "127.0.0.1:5555"}
 
-Needs `adb` connected to the phone (`adb tcpip 5555` once per boot from any
-adb connection, then `adb connect 127.0.0.1:5555` from Termux) and an rclone
-Drive remote (`ANKI_KOREAN_DRIVE_REMOTE`, default `moneo`, scope drive.file).
-The Doc id is kept in `~/.config/anki-korean-sync/doc-id`.
+Needs `adb` to the phone and an rclone Drive remote (`ANKI_KOREAN_DRIVE_REMOTE`,
+default `moneo`, scope drive.file). Running on the phone itself with serial
+127.0.0.1:5555, it recovers after a reboot on its own if Wireless debugging
+is on: the pairing survives reboots, so it finds the wireless-debugging port
+among the phone's open local ports and reruns `adb tcpip 5555`. Elsewhere, run
+`adb tcpip 5555` once per boot. The Doc id is kept in
+`~/.config/anki-korean-sync/doc-id`.

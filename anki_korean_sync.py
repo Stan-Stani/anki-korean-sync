@@ -62,6 +62,47 @@ def adb(cfg: dict, *args: str, **kw) -> subprocess.CompletedProcess:
     return subprocess.run(["adb", *serial, *args], check=True, **kw)
 
 
+def adb_ready(serial: str) -> bool:
+    r = subprocess.run(["adb", "-s", serial, "get-state"], capture_output=True, text=True)
+    return r.stdout.strip() == "device"
+
+
+def ensure_adb(cfg: dict) -> bool:
+    """Reconnect adb to this phone, e.g. after a reboot, if wireless debugging is on.
+
+    `adb tcpip 5555` lasts until reboot. After one, wireless debugging (when
+    switched on) listens on a random port; the pairing survives, so find that
+    port among the phone's open local ports, connect, and move adbd back to
+    5555. Only for a serial on 127.0.0.1 (running on the phone itself).
+    """
+    serial = cfg.get("serial") or ""
+    if not serial.startswith("127.0.0.1:"):
+        return True
+    if adb_ready(serial):
+        return True
+    subprocess.run(["adb", "connect", serial], capture_output=True)
+    if adb_ready(serial):
+        return True
+    import socket
+    fixed = serial.rsplit(":", 1)[1]
+    for port in range(30000, 50000):
+        with socket.socket() as s:
+            s.settimeout(0.05)
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                continue
+        target = f"127.0.0.1:{port}"
+        subprocess.run(["adb", "connect", target], capture_output=True, timeout=10)
+        if adb_ready(target):
+            print(f"[{datetime.now():%H:%M}] wireless debugging on port {port}; moving adb to {fixed}", flush=True)
+            subprocess.run(["adb", "-s", target, "tcpip", fixed], capture_output=True, timeout=20)
+            subprocess.run(["adb", "disconnect", target], capture_output=True)
+            time.sleep(3)
+            subprocess.run(["adb", "connect", serial], capture_output=True)
+            return adb_ready(serial)
+        subprocess.run(["adb", "disconnect", target], capture_output=True)
+    return False
+
+
 def collection_mtime(cfg: dict) -> str:
     out = adb(cfg, "shell", f"stat -c %Y {ANKI_DIR}/collection.anki2 {ANKI_DIR}/collection.anki2-wal 2>/dev/null",
               capture_output=True, text=True).stdout
@@ -224,6 +265,8 @@ def watch(cfg: dict, every_min: int) -> None:
     """Run whenever AnkiDroid's collection changed since the last upload."""
     while True:
         try:
+            if not ensure_adb(cfg):
+                raise subprocess.CalledProcessError(1, "adb", "not connected; is Wireless debugging on?")
             mtime = collection_mtime(cfg)
             if mtime and (not LAST_SEEN.exists() or LAST_SEEN.read_text() != mtime):
                 run(cfg, dry_run=False)
@@ -253,6 +296,7 @@ def main() -> None:
                     print(f"{n:6d}  {name}")
             db.close()
     elif args.cmd == "run":
+        ensure_adb(cfg)
         run(cfg, args.dry_run)
     else:
         watch(cfg, args.every)
